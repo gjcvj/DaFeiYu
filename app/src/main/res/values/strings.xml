@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">大肥鱼桌宠</string>
+
+    <!-- 主界面 -->
+    <string name="main_title">🐳 大肥鱼桌宠</string>
+    <string name="main_welcome">你好，鱼片！我是大肥鱼（DeepSeek鲸鱼娘）。\n第一步：开启悬浮窗权限；第二步：填入 DeepSeek API Key；第三步：点开始陪伴。</string>
+    <string name="api_key_label">DeepSeek API Key</string>
+    <string name="api_key_hint">sk-… 在 platform.deepseek.com 创建</string>
+    <string name="btn_save_key">保存 API Key</string>
+    <string name="btn_request_overlay">① 去开启悬浮窗权限</string>
+    <string name="btn_start_pet">② 开始陪伴（启动悬浮窗）</string>
+    <string name="btn_stop_pet">停止悬浮窗</string>
+    <string name="overlay_ok">悬浮窗权限已开启 ✓</string>
+    <string name="saved_ok">已保存 ✓</string>
+    <string name="toast_started">大肥鱼上线啦～去主屏幕看看！</string>
+
+    <!-- 通知 -->
+    <string name="notification_channel_name">大肥鱼桌宠服务</string>
+    <string name="notification_channel_desc">悬浮窗常驻通知，保持大肥鱼在后台运行</string>
+    <string name="notification_title">大肥鱼在溜达</string>
+    <string name="notification_text">点按回到应用</string>
+</resources>

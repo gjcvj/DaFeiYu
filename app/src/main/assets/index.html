@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>大肥鱼桌宠</title>
+<style>
+  /* ============ 基础：整个页面透明铺满悬浮窗 ============ */
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: transparent;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  #pet {
+    position: fixed; left: 0; top: 0;
+    width: 100%; height: 100%;
+    overflow: visible;
+    pointer-events: auto;
+  }
+  /* 原版模型的 view 是 268 x 280 的相对单位：按窗口宽度等比缩放，模型中心与窗口中心对齐 */
+  #pet svg {
+    position: absolute;
+    left: 50%; top: 4px;
+    width: 268px; height: 280px;
+    margin-left: -134px;
+    overflow: visible;
+    transform: scale(calc(100vw / 268));
+    transform-origin: 50% 0;
+    display: block;
+    pointer-events: none;
+  }
+  /* 点击/拖拽/双击都命中这个透明面板（放在模型之上，避免逐一小元素吞事件） */
+  #picker { position: fixed; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; }
+
+  /* ============ 台词气泡：显示在窗口底部（聊天框上方） ============ */
+  #bubble {
+    position: fixed; left: 6px; right: 6px; bottom: 30px;
+    z-index: 20;
+    box-sizing: border-box;
+    max-height: 34%;
+    overflow: auto;
+    padding: 7px 9px;
+    font-size: 12px; line-height: 1.45; color: #3a2f5a;
+    background: rgba(255,255,255,.95);
+    border: 1.5px solid #9db6ff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(60,50,120,.2);
+    opacity: 0; transform: translateY(4px);
+    transition: opacity .18s ease, transform .18s ease;
+    pointer-events: none;
+    word-break: break-word;
+  }
+  #bubble.show { opacity: 1; transform: translateY(0); }
+
+  /* ============ 表情包贴图：30% 概率随机弹出，1.5s 后消失 ============ */
+  #sticker {
+    position: fixed; left: 50%; top: 4px; z-index: 30;
+    transform: translateX(-50%) scale(.6);
+    opacity: 0; pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  #sticker img { width: 92px; height: auto; display: block; border-radius: 8px; }
+  #sticker.show { opacity: 1; transform: translateX(-50%) scale(1); }
+
+  /* ============ 聊天框：平时隐藏，双击大肥鱼出现 ============ */
+  #chatBox {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: none;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    background: rgba(20,16,48,.82);
+    border-radius: 12px 12px 0 0;
+  }
+  #chatBox.open { display: flex; align-items: center; gap: 5px; }
+  #chatInput {
+    flex: 1; min-width: 0;
+    height: 27px;
+    padding: 0 8px;
+    font-size: 13px; color: #222;
+    background: #fff; border: none; border-radius: 14px;
+    outline: none;
+  }
+  #chatSend {
+    height: 27px; padding: 0 13px;
+    font-size: 13px; color: #fff;
+    background: #5b7cfa; border: none; border-radius: 14px;
+  }
+  #chatSend:active { background: #3f5fd8; }
+</style>
+</head>
+<body>
+  <div id="pet"></div>
+  <div id="picker"></div>
+  <div id="bubble"></div>
+  <div id="sticker"><img id="stickerImg" alt=""></div>
+  <div id="chatBox">
+    <input id="chatInput" type="text" maxlength="300" placeholder="和鱼片说点什么…" autocomplete="off">
+    <button id="chatSend">发送</button>
+  </div>
+
+<script type="module">
+  import { createWhaleFigure } from './dafeiyu/figure.js';
+
+  /* =====================================================================
+   *  第一部分：挂载原版渲染器（figure.js / rig.js，100% 原版素材）
+   *  呼吸、头发/尾巴/裙子摆动等物理效果全部由图谱渲染脚本自带，这里
+   *  只需要每帧把时间与状态喂给 fig.draw()。
+   * ===================================================================== */
+  const petEl = document.getElementById('pet');
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const petG = document.createElementNS(SVGNS, 'g');
+  petEl.appendChild(petG);
+  // 原版模型地面与髋部（来自 pet-core.js 的 STAND / HIPS，未改任何数值）
+  const FOOT_Y = 241; // 256 - 30/2
+  const LEGS = [[104, 212, 104, FOOT_Y], [150, 212, 150, FOOT_Y]];
+
+  const fig = await createWhaleFigure(); // 默认 base = ./dafeiyu/，自动加载 model.json + tex + feat
+
+  /* =====================================================================
+   *  第二部分：表情库（字段全部照抄原版 pet-core.js 的 FACES 表，
+   *  由原版 paintFace 消费，保证与电脑端 100% 同款表情）
+   * ===================================================================== */
+  const ring = o => ({ shape: 'ring', rx: 16, ry: 16, ...o });
+  const FACES = {
+    neutral:   () => ({ gap: [50, 50], eyes: [ring(), ring()] }),
+    happy:     () => ({ gap: [58, 58], eyes: [{ shape: 'up' }, { shape: 'up' }], blush: .45 }),
+    wink:      () => ({ gap: [56, 52], eyes: [ring(), { shape: 'up' }] }),
+    love:      () => ({ gap: [56, 56], eyes: [{ shape: 'heart', s: .8, sw: 8 }, { shape: 'heart', s: .8, sw: 8 }], blush: .7 }),
+    shy:       () => ({ gap: [40, 40], eyes: [ring({ rx: 13, ry: 12, dx: -3, dy: 5 }), ring({ rx: 13, ry: 12, dx: -3, dy: 5 })], blush: 1 }),
+    surprised: () => ({ gap: [62, 62], eyes: [ring({ rx: 20, ry: 21 }), ring({ rx: 20, ry: 21 })] }),
+    sleepy:    () => ({ gap: [54, 54], eyes: [{ shape: 'lid', ry: 5 }, { shape: 'lid', ry: 5 }] }),
+    sleep:     () => ({ gap: [46, 46], eyes: [{ shape: 'down' }, { shape: 'down' }] }),
+    content:   () => ({ gap: [46, 46], eyes: [{ shape: 'lid', ry: 4 }, { shape: 'lid', ry: 4 }] }),
+    pout:      () => ({ gap: [28, 28], eyes: [ring({ rx: 14, ry: 13 }), ring({ rx: 14, ry: 13 })], blush: .6 }),
+    thinking:  () => ({ gap: [46, 46], eyes: [ring({ rx: 14, ry: 15, dx: 3, dy: -4 }), ring({ rx: 14, ry: 15, dx: 3, dy: -4 })] }),
+    listening: () => ({ gap: [44, 44], eyes: [ring({ rx: 17, ry: 18, dy: -1 }), ring({ rx: 17, ry: 18, dy: -1 })] }),
+    dragged:   () => ({ gap: [55, 55], eyes: [{ shape: 'gt' }, { shape: 'lt' }], sweat: true }),
+    dizzy:     () => ({ gap: [54, 48], eyes: [{ shape: 'spiral' }, { shape: 'spiral' }] }),
+    angry:     () => ({ gap: [36, 36], eyes: [ring({ ry: 11, dy: 4 }), ring({ ry: 11, dy: 4 })], brows: 'angry' }),
+  };
+
+  /* 待机状态机：默认 neutral，每 5~9 秒随机做一个表情，持续 2.5~3.5 秒 */
+  const EXPR_POOL = ['wink', 'happy', 'love', 'shy', 'pout', 'sleepy', 'content', 'surprised', 'wink', 'happy', 'neutral', 'neutral'];
+  let faceName = 'neutral', fc = FACES.neutral();
+  let exprAt = 5 + Math.random() * 4, exprDur = 0, exprName = null;
+  function setFace(name, now) {
+    faceName = name; fc = FACES[name]();
+  }
+
+  let blinkNext = 2.5 + Math.random() * 2.5, blinkStart = 0;
+
+  /* 每一帧：推进待机表情/眨眼，然后交给原版渲染器 */
+  let last = performance.now();
+  function frame(now) {
+    const t = now / 1000;
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+    // —— 随机表情调度（聊天/拖拽时暂停） ——
+    if (!chatBusy && !dragHeld) {
+      if (exprName == null && t >= exprAt) {
+        exprName = EXPR_POOL[(Math.random() * EXPR_POOL.length) | 0];
+        exprDur = 2.5 + Math.random();
+        if (exprName === 'sleep') exprDur = 3.5;
+        setFace(exprName, t); frameObj.face = exprName;
+      } else if (exprName != null && t >= exprAt + exprDur) {
+        exprName = null; exprAt = t + 5 + Math.random() * 4;
+        if (faceName !== 'neutral' && !chatBusy && !dragHeld) { setFace('neutral', t); frameObj.face = 'neutral'; }
+      }
+    }
+    // —— 眨眼（用原版 o.blink 通道，ring 眼会自动合上） ——
+    if (t >= blinkNext) { blinkStart = t; blinkNext = t + 1.8 + Math.random() * 3; }
+    const bp = t - blinkStart;
+    frameObj.blink = bp <= .16 ? Math.sin(Math.PI * bp / .16) : 0;
+
+    frameObj.t = t;
+    fig.draw(petG, fc, frameObj);
+    requestAnimationFrame(frame);
+  }
+
+  const frameObj = {
+    t: 0, mode: 'idle', face: 'neutral', look: [0, 0],
+    legs: LEGS, low: 0, tilt: 0, lean: 0, facing: 1,
+    blink: 0, swing: 0, talk: 0,
+  };
+  let dragHeld = false, chatBusy = false;
+
+  /* =====================================================================
+   *  第三部分：台词气泡 / 表情包贴图
+   * ===================================================================== */
+  const bubble = document.getElementById('bubble');
+  let bubbleTimer = 0;
+  function say(text, ms = 2200) {
+    bubble.textContent = text;
+    bubble.classList.add('show');
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => bubble.classList.remove('show'), ms);
+  }
+  const TAP_LINES = ['别戳我啦，鳞片要掉光了！', '干嘛呀，我正忙着发呆呢！', '再戳我就咬你！', '今天的白饭呢？'];
+  const LIFT_LINES = ['放我下来啦，转得晕乎乎！', '呜哇！地震了吗！', '别抛我，鱼尾巴要断了！'];
+
+  const stickerEl = document.getElementById('sticker');
+  const stickerImg = document.getElementById('stickerImg');
+  let stickerTimer = 0;
+  function popSticker() {
+    if (Math.random() >= 0.3) return;                       // 30% 概率
+    const n = 1 + ((Math.random() * 15) | 0);               // 1.png ~ 15.png
+    stickerImg.src = './stickers/' + n + '.png';
+    stickerEl.classList.add('show');
+    clearTimeout(stickerTimer);
+    stickerTimer = setTimeout(() => stickerEl.classList.remove('show'), 1500);
+  }
+
+  /* =====================================================================
+   *  第四部分：聊天（双击触发，消耗 Token；DeepSeek API）
+   * ===================================================================== */
+  const SYSTEM_PROMPT = '你是大肥鱼（DeepSeek鲸鱼娘），DeepSeek 的官方吉祥物，聪明但懒散，傲娇嘴甜，贪吃，最喜欢白饭，称呼用户为"鱼片"。经典台词："我不是大肥鱼……我是吃白饭的大肥鱼！"。请用中文简短回答（一般不超过50字），语气俏皮、带一点点傲娇，称呼用户为鱼片。';
+
+  function getApiKey() {
+    const bridgeKey = window.AndroidBridge && typeof window.AndroidBridge.getApiKey === 'function' ? window.AndroidBridge.getApiKey() : null;
+    if (bridgeKey) return bridgeKey;
+    return localStorage.getItem('deepseek_api_key') || '';   // PC 浏览器调试用
+  }
+
+  const chatBox = document.getElementById('chatBox');
+  const chatInput = document.getElementById('chatInput');
+  const chatSend = document.getElementById('chatSend');
+
+  function openChat() {
+    chatBox.classList.add('open');
+    setTimeout(() => chatInput.focus(), 60);
+  }
+  function closeChat() {
+    chatBox.classList.remove('open');
+    chatInput.blur();
+  }
+
+  async function sendChat() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    const key = getApiKey();
+    if (!key) { say('鱼片～先在 App 主界面填好 API Key 再叫我嘛！'); return; }
+    closeChat();
+    chatBusy = true;
+    setFace('thinking', performance.now() / 1000); frameObj.face = 'thinking';
+    say('唔…让我想想，别催～');
+    try {
+      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + key,
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: text },
+          ],
+          max_tokens: 220,
+        }),
+      });
+      if (!res.ok) {
+        let msg = 'HTTP ' + res.status;
+        try { const e = await res.json(); if (e && e.error && e.error.message) msg = e.error.message; } catch (_) {}
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      const reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '……';
+      setFace('happy', performance.now() / 1000); frameObj.face = 'happy';
+      frameObj.talk = Math.min(1, reply.length / 16);   // 按回复长度张嘴
+      say(reply, Math.max(2400, Math.min(8000, 900 + reply.length * 90)));
+    } catch (err) {
+      setFace('surprised', performance.now() / 1000); frameObj.face = 'surprised';
+      say('哎呀，网络闹脾气了：' + err.message);
+    } finally {
+      setTimeout(() => { chatBusy = false; }, 400);
+    }
+  }
+  chatSend.addEventListener('click', sendChat);
+  chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+  /* =====================================================================
+   *  第五部分：交互路由（严格区分 单击 / 拖拽 / 双击）
+   *  - mousedown / mousemove / mouseup 区分点击与拖拽
+   *  - 移动 < 10px 且时间 < 200ms 判为单击；移动 > 10px 判为拖拽
+   *  - 双击监听 dblclick，并在 mouseup 里做快速两次点击兜底（兼容安卓 WebView）
+   * ===================================================================== */
+  const picker = document.getElementById('picker');
+  const THR = 10, TAP_MS = 200, DBL_MS = 300;
+  let downX = 0, downY = 0, downT = 0, dragging = false, liftShouted = false;
+  let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+
+  // 拖拽姿态：mode='drag' 让原版渲染器进入"被拎起"动画（手臂乱摆、尾巴打转）
+  function setHeld(on) {
+    dragHeld = on;
+    frameObj.mode = on ? 'drag' : 'idle';
+    if (on) { setFace('dragged', performance.now() / 1000); frameObj.face = 'dragged'; }
+    else if (!chatBusy) { setFace('neutral', performance.now() / 1000); frameObj.face = 'neutral'; }
+  }
+
+  picker.addEventListener('mousedown', e => {
+    downX = e.clientX; downY = e.clientY; downT = performance.now();
+    dragging = false; liftShouted = false;
+  });
+  picker.addEventListener('mousemove', e => {
+    if (dragging) return;
+    const d = Math.hypot(e.clientX - downX, e.clientY - downY);
+    if (d > THR) {
+      dragging = true;
+      setHeld(true);
+      if (!liftShouted) {
+        liftShouted = true;
+        say(LIFT_LINES[(Math.random() * LIFT_LINES.length) | 0], 1600);
+        popSticker();
+      }
+    }
+  });
+  picker.addEventListener('mouseup', e => {
+    const d = Math.hypot(e.clientX - downX, e.clientY - downY);
+    const dt = performance.now() - downT;
+    if (dragging) {           // 拖拽结束，复位姿态，不触发点击
+      setHeld(false);
+      lastTapT = 0;           // 不算点击，避免拖完误判双击
+      return;
+    }
+    dragging = false;
+    if (d <= THR && dt < TAP_MS) {
+      // 快速两次点击 -> 双击聊天
+      if (performance.now() - lastTapT < DBL_MS && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < THR * 1.6) {
+        lastTapT = 0;
+        openChat();
+        return;
+      }
+      lastTapT = performance.now(); lastTapX = e.clientX; lastTapY = e.clientY;
+      if (!chatBusy) {          // 单击：台词 + 30% 表情包
+        setFace(Math.random() < .5 ? 'happy' : 'surprised', performance.now() / 1000);
+        frameObj.face = faceName;
+        say(TAP_LINES[(Math.random() * TAP_LINES.length) | 0], 1600);
+        popSticker();
+        setTimeout(() => { if (!chatBusy && !dragHeld) { setFace('neutral', performance.now() / 1000); frameObj.face = 'neutral'; } }, 1200);
+      }
+    }
+  });
+  // 桌面/兼容环境下的标准双击
+  picker.addEventListener('dblclick', e => {
+    openChat();
+  });
+  // 拿起的表情在拖拽结束时统一复原（兜底）
+  picker.addEventListener('mouseleave', () => { if (dragHeld) setHeld(false); });
+
+  /* 启动：原版渲染器就绪后直接开跑 */
+  setFace('neutral', 0);
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

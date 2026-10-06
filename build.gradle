@@ -1,0 +1,5 @@
+// 工程级 build.gradle：只声明 Android Gradle 插件版本
+// 本工程仅 4 个 Java 文件 + WebView 网页，配置保持极简，云端（GitHub Actions）可直接构建
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

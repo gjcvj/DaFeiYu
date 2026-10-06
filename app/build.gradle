@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.coopanion.pet'          // 应用包名（唯一标识，不要改）
+    compileSdk 34                          // 编译目标 SDK
+
+    defaultConfig {
+        applicationId "com.coopanion.pet"
+        minSdk 26                          // Android 8.0+：TYPE_APPLICATION_OVERLAY 悬浮窗要求
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            // 极简场景不做混淆，避免误删导致崩溃
+            minifyEnabled false
+            // 无电脑直装方案：release 也使用调试签名（Actions 自动生成 debug keystore，直接可安装）。
+            // 正式上架商店前请换成正式签名（见 README）。
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        // Java 17 兼容 AGP 8.x 与 GitHub Actions 自带 JDK 17
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            // 网页与素材都在 assets/ 下：index.html、dafeiyu/（形象）、stickers/（表情包）
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    // WebViewAssetLoader：把 assets 目录安全地暴露给 WebView 加载（https://appassets.androidplatform.net）
+    implementation 'androidx.webkit:webkit:1.11.0'
+    // 网络请求交给网页端 JS fetch，Java 侧无需 OkHttp
+}
